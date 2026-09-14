@@ -20,6 +20,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          echo "Triggering K90 clean GKI build"
           curl --fail-with-body -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
