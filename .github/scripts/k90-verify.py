@@ -72,28 +72,16 @@ def configure():
                     "-e", "KSU", "-e", "ARM64_4K_PAGES",
                     "-d", "ARM64_16K_PAGES", "-d", "ARM64_64K_PAGES",
                     "-e", "KPROBES", "-e", "IKCONFIG", "-e", "IKCONFIG_PROC"], check=True)
-    # This Kleaf macro does not expose check_defconfig in target_configs.
-    # Change only its defconfig-equality check, needed for our explicit config
-    # additions. KMI lists, protected exports and ABI checks stay untouched.
-    path = ROOT / "kernel/build/kernel/kleaf/common_kernels.bzl"
+    # The pinned main-kernel-build-2024 Kleaf uses build.config.gki's
+    # POST_DEFCONFIG_CMDS, not the newer check_defconfig Starlark API.
+    path = COMMON / "build.config.gki"
     src = path.read_text()
-    (EVIDENCE / "common_kernels.original.bzl").write_text(src)
-    matches = list(re.finditer(r"check_defconfig\s*=\s*select\(", src))
-    require(len(matches) == 1, "expected one Kleaf defconfig select expression")
-    begin = matches[0].start()
-    pos = matches[0].end()
-    depth = 1
-    while pos < len(src) and depth:
-        if src[pos] == "(":
-            depth += 1
-        elif src[pos] == ")":
-            depth -= 1
-        pos += 1
-    require(depth == 0, "unterminated defconfig expression")
-    original = src[begin:pos]
-    print("Replacing defconfig equality check only:", original)
-    path.write_text(src[:begin] + 'check_defconfig = "disabled"' + src[pos:])
-    (EVIDENCE / "kleaf-config-change.txt").write_text(original + '\n=> check_defconfig = "disabled"\n')
+    (EVIDENCE / "build.config.gki.original").write_text(src)
+    require(src.count("check_defconfig") == 1, "unexpected GKI defconfig check")
+    print("Original GKI config:", src)
+    path.write_text(src.replace("check_defconfig", ""))
+    # Only the equality check is removed, matching the repository's existing
+    # build-kernel action. Actual final config validation remains mandatory.
     shutil.copyfile(DEFCONFIG, EVIDENCE / "requested-gki_defconfig")
     (EVIDENCE / "kernel-source-changes.patch").write_text(
         run("git", "-C", str(COMMON), "diff", "--"))
