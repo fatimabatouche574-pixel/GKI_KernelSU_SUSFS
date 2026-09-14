@@ -1,5 +1,5 @@
 name: 'Setup SUSFS Branch'
-description: 'Clone SUSFS repo and cherry-pick live pershoot integration commits'
+description: 'Clone SUSFS repo and apply the last known pershoot integration patches'
 inputs:
   susfs_commit:
     description: 'SUSFS commit hash (empty = latest on auto-derived gki-{version} branch)'
@@ -30,7 +30,7 @@ runs:
 
         SUSFS_BRANCH="gki-${{ inputs.version }}"
         SUSFS_REPO="https://gitlab.com/simonpunk/susfs4ksu.git"
-        PERSHOOT_REPO="https://gitlab.com/pershoot/susfs4ksu.git"
+        PATCH_BASE="https://raw.githubusercontent.com/WildKernels/kernel_patches/757201d1591dfd857a1195b7accb1a8203b18793/pershoot/susfs4ksu"
 
         echo "Preparing SUSFS for branch: $SUSFS_BRANCH"
         echo "Cloning base SUSFS from $SUSFS_REPO..."
@@ -46,24 +46,35 @@ runs:
         echo "SUSFS_COMMIT=$SUSFS_COMMIT" >> "$GITHUB_ENV"
         echo "Using base SUSFS commit: $SUSFS_COMMIT"
 
-        # WildKernels/kernel_patches removed the old pinned pershoot patch files
-        # in 4285cd1755f62a20269aa80757ecb4631908ec77 with the note that GKI
-        # should fetch the top two pershoot integration commits live. Do that
-        # here so the workflow stays compatible with the current helper repo.
-        echo "Fetching live pershoot integration commits for $SUSFS_BRANCH..."
-        git remote remove pershoot 2>/dev/null || true
-        git remote add pershoot "$PERSHOOT_REPO"
-        retry git fetch --no-tags --depth=2 pershoot "$SUSFS_BRANCH"
+        # WildKernels/kernel_patches removed these files in commit 4285cd1 with
+        # the intention of replacing them with live pershoot commits. The
+        # pershoot mirror does not expose gki-android15-6.6, so use the exact
+        # last known patch pair from the parent commit. Apply idempotently so a
+        # future SUSFS tree that already carries them will simply skip them.
+        PATCHES=(
+          "0001-pershoot-Allow-core-to-be-built-with-no-features.patch"
+          "0002-pershoot-Implement-SuSFS-and-Toolkit-coexistence.patch"
+        )
 
-        mapfile -t PERSHOOT_COMMITS < <(git rev-list --max-count=2 --reverse FETCH_HEAD)
-        if [ "${#PERSHOOT_COMMITS[@]}" -ne 2 ]; then
-          echo "ERROR: expected two pershoot integration commits, got ${#PERSHOOT_COMMITS[@]}" >&2
-          exit 1
-        fi
+        for patch_name in "${PATCHES[@]}"; do
+          tmp_patch="$(mktemp)"
+          echo "Fetching pershoot integration patch: $patch_name"
+          retry curl -fsSL "$PATCH_BASE/$patch_name" -o "$tmp_patch"
 
-        echo "Applying pershoot commits: ${PERSHOOT_COMMITS[*]}"
-        for commit in "${PERSHOOT_COMMITS[@]}"; do
-          git cherry-pick "$commit"
+          if patch --dry-run -p1 < "$tmp_patch" >/dev/null 2>&1; then
+            echo "Applying $patch_name"
+            patch -p1 < "$tmp_patch"
+          elif patch --dry-run -R -p1 < "$tmp_patch" >/dev/null 2>&1; then
+            echo "$patch_name is already integrated; skipping"
+          else
+            echo "ERROR: $patch_name neither applies nor appears already integrated" >&2
+            echo "Dry-run diagnostics:" >&2
+            patch --dry-run -p1 < "$tmp_patch" || true
+            rm -f "$tmp_patch"
+            exit 1
+          fi
+
+          rm -f "$tmp_patch"
         done
 
         echo "SUSFS integration tree prepared successfully."
