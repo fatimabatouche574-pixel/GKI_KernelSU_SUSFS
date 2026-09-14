@@ -10,7 +10,7 @@ permissions:
   contents: read
 concurrency:
   group: k90-clean-gki
-  cancel-in-progress: false
+  cancel-in-progress: true
 env:
   kernel_build_version: 6.6.x-android15
   os_patch_level: 2026-01
