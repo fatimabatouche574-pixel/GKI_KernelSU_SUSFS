@@ -50,9 +50,10 @@ def baseline():
     for key, value in (("VERSION", "6"), ("PATCHLEVEL", "6"), ("SUBLEVEL", "118")):
         require(re.search(r"^" + key + r"\s*=\s*" + value + r"\s*$", m, re.M),
                 key + " must be " + value)
-    build_config = (COMMON / "build.config.constants").read_text()
-    require("android15" in build_config, "Android 15 branch not verified")
-    (EVIDENCE / "build.config.constants").write_text(build_config)
+    build_config = (COMMON / "build.config.common").read_text()
+    require(re.search(r"^BRANCH=android15-6\.6$", build_config, re.M), "Android 15 branch not verified")
+    require(re.search(r"^KMI_GENERATION=8$", build_config, re.M), "KMI generation must be 8")
+    (EVIDENCE / "build.config.common").write_text(build_config)
     print("Baseline verified: common-android15-6.6-2026-01, 6.6.118, arm64")
     print(build_config)
 
