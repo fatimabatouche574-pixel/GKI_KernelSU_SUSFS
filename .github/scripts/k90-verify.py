@@ -72,14 +72,28 @@ def configure():
                     "-e", "KSU", "-e", "ARM64_4K_PAGES",
                     "-d", "ARM64_16K_PAGES", "-d", "ARM64_64K_PAGES",
                     "-e", "KPROBES", "-e", "IKCONFIG", "-e", "IKCONFIG_PROC"], check=True)
-    # The modified defconfig cannot equal Google's checked-in defconfig. Keep
-    # all KMI symbol lists/protected exports and ABI checks intact.
-    path = COMMON / "BUILD.bazel"
+    # This Kleaf macro does not expose check_defconfig in target_configs.
+    # Change only its defconfig-equality check, needed for our explicit config
+    # additions. KMI lists, protected exports and ABI checks stay untouched.
+    path = ROOT / "kernel/build/kernel/kleaf/common_kernels.bzl"
     src = path.read_text()
-    anchor = '"kernel_aarch64": {'
-    require(src.count(anchor) == 1, "ambiguous Kleaf arm64 target")
-    src = src.replace(anchor, anchor + '\n        "check_defconfig": "disabled",', 1)
-    path.write_text(src)
+    (EVIDENCE / "common_kernels.original.bzl").write_text(src)
+    matches = list(re.finditer(r"check_defconfig\s*=\s*select\(", src))
+    require(len(matches) == 1, "expected one Kleaf defconfig select expression")
+    begin = matches[0].start()
+    pos = matches[0].end()
+    depth = 1
+    while pos < len(src) and depth:
+        if src[pos] == "(":
+            depth += 1
+        elif src[pos] == ")":
+            depth -= 1
+        pos += 1
+    require(depth == 0, "unterminated defconfig expression")
+    original = src[begin:pos]
+    print("Replacing defconfig equality check only:", original)
+    path.write_text(src[:begin] + 'check_defconfig = "disabled"' + src[pos:])
+    (EVIDENCE / "kleaf-config-change.txt").write_text(original + '\n=> check_defconfig = "disabled"\n')
     shutil.copyfile(DEFCONFIG, EVIDENCE / "requested-gki_defconfig")
     (EVIDENCE / "kernel-source-changes.patch").write_text(
         run("git", "-C", str(COMMON), "diff", "--"))
