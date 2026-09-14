@@ -1,6 +1,6 @@
 name: K90 Clean GKI Dispatch
 
-# retrigger: susfs live-pershoot fix v1
+# retrigger: susfs stable-pershoot patch fix v2
 permissions:
   actions: write
   contents: read
