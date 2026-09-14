@@ -1,5 +1,5 @@
 name: 'Setup SUSFS Branch'
-description: 'Clone SUSFS repo and cherry-pick commits'
+description: 'Clone SUSFS repo and cherry-pick live pershoot integration commits'
 inputs:
   susfs_commit:
     description: 'SUSFS commit hash (empty = latest on auto-derived gki-{version} branch)'
@@ -17,7 +17,6 @@ runs:
       run: |
         set -euo pipefail
 
-        # Retry transient network errors (up to 5 attempts, 5s backoff).
         retry() {
           local n=0
           until [ "$n" -ge 5 ]; do
@@ -31,9 +30,10 @@ runs:
 
         SUSFS_BRANCH="gki-${{ inputs.version }}"
         SUSFS_REPO="https://gitlab.com/simonpunk/susfs4ksu.git"
+        PERSHOOT_REPO="https://gitlab.com/pershoot/susfs4ksu.git"
 
         echo "Preparing SUSFS for branch: $SUSFS_BRANCH"
-        echo "Cloning latest from $SUSFS_BRANCH..."
+        echo "Cloning base SUSFS from $SUSFS_REPO..."
         retry git clone "$SUSFS_REPO" -b "$SUSFS_BRANCH" susfs4ksu
 
         if [ -n "${{ inputs.susfs_commit }}" ]; then
@@ -44,7 +44,26 @@ runs:
         cd "${{ github.workspace }}/susfs4ksu"
         SUSFS_COMMIT="$(git rev-parse HEAD)"
         echo "SUSFS_COMMIT=$SUSFS_COMMIT" >> "$GITHUB_ENV"
-        echo "Using SUSFS commit: $SUSFS_COMMIT"
+        echo "Using base SUSFS commit: $SUSFS_COMMIT"
 
-        patch -p1 < "${{ github.workspace }}/kernel_patches/pershoot/susfs4ksu/0001-pershoot-Allow-core-to-be-built-with-no-features.patch"
-        patch -p1 < "${{ github.workspace }}/kernel_patches/pershoot/susfs4ksu/0002-pershoot-Implement-SuSFS-and-Toolkit-coexistence.patch"
+        # WildKernels/kernel_patches removed the old pinned pershoot patch files
+        # in 4285cd1755f62a20269aa80757ecb4631908ec77 with the note that GKI
+        # should fetch the top two pershoot integration commits live. Do that
+        # here so the workflow stays compatible with the current helper repo.
+        echo "Fetching live pershoot integration commits for $SUSFS_BRANCH..."
+        git remote remove pershoot 2>/dev/null || true
+        git remote add pershoot "$PERSHOOT_REPO"
+        retry git fetch --no-tags --depth=2 pershoot "$SUSFS_BRANCH"
+
+        mapfile -t PERSHOOT_COMMITS < <(git rev-list --max-count=2 --reverse FETCH_HEAD)
+        if [ "${#PERSHOOT_COMMITS[@]}" -ne 2 ]; then
+          echo "ERROR: expected two pershoot integration commits, got ${#PERSHOOT_COMMITS[@]}" >&2
+          exit 1
+        fi
+
+        echo "Applying pershoot commits: ${PERSHOOT_COMMITS[*]}"
+        for commit in "${PERSHOOT_COMMITS[@]}"; do
+          git cherry-pick "$commit"
+        done
+
+        echo "SUSFS integration tree prepared successfully."
